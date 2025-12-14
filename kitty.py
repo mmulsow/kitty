@@ -30,6 +30,8 @@ def calibrate_legs():
     - Enter: confirm and move to next joint
     - 'q': quit calibration
     """
+    from kitty_move import OFFSETS
+
     # Define all joints to calibrate
     joints = [
         ('fl', 'top', 'Front Left - Top Joint (Hip)'),
@@ -42,9 +44,6 @@ def calibrate_legs():
         ('br', 'bottom', 'Back Right - Bottom Joint (Knee)'),
     ]
 
-    # Store offsets as we calibrate
-    offsets = {}
-
     print("=" * 60)
     print("CALIBRATION MODE")
     print("=" * 60)
@@ -55,9 +54,16 @@ def calibrate_legs():
     print("  - Press 'q' to quit\n")
 
     for leg, joint_type, description in joints:
+        # Get the existing offset for this joint
+        joint_key = f"{leg}_{joint_type}"
+        existing_offset = OFFSETS.get(joint_key, 0)
+
+        # Start at 90 degrees (which will have existing offset applied by move_legs)
         current_angle = 90
 
         print(f"\n{description}")
+        if existing_offset != 0:
+            print(f"Current offset: {existing_offset:+d}°")
         print(f"Starting at 90 degrees. Adjust as needed...")
 
         # Set initial position
@@ -67,7 +73,10 @@ def calibrate_legs():
             move_legs(leg, 90, current_angle)
 
         while True:
-            print(f"  Current angle: {current_angle}° (offset: {current_angle - 90:+d}°)", end='\r')
+            # Calculate what the new total offset would be
+            adjustment = current_angle - 90
+            new_total_offset = existing_offset + adjustment
+            print(f"  Current angle: {current_angle}° (adjustment: {adjustment:+d}°, new total offset: {new_total_offset:+d}°)", end='\r')
 
             key = get_key()
 
@@ -89,9 +98,10 @@ def calibrate_legs():
 
             # Enter: confirm
             elif key == '\n' or key == '\r':
-                offset = current_angle - 90
-                offsets[f"{leg}_{joint_type}"] = offset
-                print(f"\n  ✓ Confirmed! Offset: {offset:+d}°")
+                adjustment = current_angle - 90
+                new_total_offset = existing_offset + adjustment
+                set_leg_offset(leg, joint_type, new_total_offset)
+                print(f"\n  ✓ Confirmed! New total offset: {new_total_offset:+d}° (was {existing_offset:+d}°, adjusted by {adjustment:+d}°)")
                 break
 
             # Quit
@@ -104,11 +114,6 @@ def calibrate_legs():
     # Save all offsets
     print("\n" + "=" * 60)
     print("Calibration complete! Saving offsets...")
-
-    for joint_name, offset in offsets.items():
-        leg, joint_type = joint_name.split('_')
-        set_leg_offset(leg, joint_type, offset)
-
     save_offsets()
     print("Offsets saved to calibration.json")
     print("=" * 60)
