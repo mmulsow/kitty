@@ -1,5 +1,120 @@
-from kitty_move import move_legs, pca
+from kitty_move import move_legs, pca, set_leg_offset, save_offsets, load_offsets
 from time import sleep
+import sys
+import termios
+import tty
+
+
+def get_key():
+    """Read a single keypress from the terminal."""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        key = sys.stdin.read(1)
+        # Handle arrow keys (they send 3 characters)
+        if key == '\x1b':
+            key += sys.stdin.read(2)
+        return key
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def calibrate_legs():
+    """
+    Calibrate each joint by adjusting angles until they're at true 90 degrees.
+
+    Use arrow keys to adjust:
+    - Left arrow: decrease angle
+    - Right arrow: increase angle
+    - Enter: confirm and move to next joint
+    - 'q': quit calibration
+    """
+    # Define all joints to calibrate
+    joints = [
+        ('fl', 'top', 'Front Left - Top Joint (Hip)'),
+        ('fl', 'bottom', 'Front Left - Bottom Joint (Knee)'),
+        ('fr', 'top', 'Front Right - Top Joint (Hip)'),
+        ('fr', 'bottom', 'Front Right - Bottom Joint (Knee)'),
+        ('bl', 'top', 'Back Left - Top Joint (Hip)'),
+        ('bl', 'bottom', 'Back Left - Bottom Joint (Knee)'),
+        ('br', 'top', 'Back Right - Top Joint (Hip)'),
+        ('br', 'bottom', 'Back Right - Bottom Joint (Knee)'),
+    ]
+
+    # Store offsets as we calibrate
+    offsets = {}
+
+    print("=" * 60)
+    print("CALIBRATION MODE")
+    print("=" * 60)
+    print("\nInstructions:")
+    print("  - Use LEFT/RIGHT arrow keys to adjust the joint")
+    print("  - Adjust until the joint is at TRUE 90 degrees")
+    print("  - Press ENTER to confirm and move to next joint")
+    print("  - Press 'q' to quit\n")
+
+    for leg, joint_type, description in joints:
+        current_angle = 90
+
+        print(f"\n{description}")
+        print(f"Starting at 90 degrees. Adjust as needed...")
+
+        # Set initial position
+        if joint_type == 'top':
+            move_legs(leg, current_angle, 90)
+        else:
+            move_legs(leg, 90, current_angle)
+
+        while True:
+            print(f"  Current angle: {current_angle}° (offset: {current_angle - 90:+d}°)", end='\r')
+
+            key = get_key()
+
+            # Left arrow: decrease
+            if key == '\x1b[D':
+                current_angle = max(0, current_angle - 1)
+                if joint_type == 'top':
+                    move_legs(leg, current_angle, 90)
+                else:
+                    move_legs(leg, 90, current_angle)
+
+            # Right arrow: increase
+            elif key == '\x1b[C':
+                current_angle = min(180, current_angle + 1)
+                if joint_type == 'top':
+                    move_legs(leg, current_angle, 90)
+                else:
+                    move_legs(leg, 90, current_angle)
+
+            # Enter: confirm
+            elif key == '\n' or key == '\r':
+                offset = current_angle - 90
+                offsets[f"{leg}_{joint_type}"] = offset
+                print(f"\n  ✓ Confirmed! Offset: {offset:+d}°")
+                break
+
+            # Quit
+            elif key == 'q' or key == 'Q':
+                print("\n\nCalibration cancelled.")
+                return
+
+        sleep(0.3)
+
+    # Save all offsets
+    print("\n" + "=" * 60)
+    print("Calibration complete! Saving offsets...")
+
+    for joint_name, offset in offsets.items():
+        leg, joint_type = joint_name.split('_')
+        set_leg_offset(leg, joint_type, offset)
+
+    save_offsets()
+    print("Offsets saved to calibration.json")
+    print("=" * 60)
+
+    # Return to neutral
+    move_legs('all', 90, 90)
 
 
 def walk_forward(steps=4, step_duration=0.3):
@@ -82,8 +197,22 @@ def walk_forward(steps=4, step_duration=0.3):
 
 
 if __name__ == "__main__":
-    # Test the walking function
-    walk_forward(steps=2, step_duration=0.3)
+    # Load calibration offsets
+    load_offsets()
+
+    print("Robot Control Menu:")
+    print("1. Calibrate legs")
+    print("2. Walk forward")
+    print("3. Exit")
+
+    choice = input("\nEnter choice (1-3): ").strip()
+
+    if choice == '1':
+        calibrate_legs()
+    elif choice == '2':
+        walk_forward(steps=2, step_duration=0.3)
+    else:
+        print("Exiting...")
 
     # Clean up
     pca.deinit()
